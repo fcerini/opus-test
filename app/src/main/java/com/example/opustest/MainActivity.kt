@@ -1,5 +1,8 @@
 package com.example.opustest
 
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,6 +17,9 @@ import com.example.opustest.ui.theme.OpusTestTheme
 
 import com.theeasiestway.opus.Constants
 import com.theeasiestway.opus.Opus
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
 
 class MainActivity : ComponentActivity() {
     private val codec = Opus()
@@ -25,67 +31,99 @@ class MainActivity : ComponentActivity() {
         setContent {
             OpusTestTheme {
                 // A surface container using the 'background' color from the theme
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
                     Greeting("OPUS 4")
                 }
             }
         }
+        Thread(Runnable {
+            test()
+        }).start()
+    }
+
+    private fun test() {
 
         try {
-            val encodedAudio = byteArrayOf(
-                19.toByte(),
-                65.toByte(),
-                0.toByte(),
-                6.toByte(),
-                37.toByte(),
-                235.toByte(),
-                76.toByte(),
-                78.toByte(),
-                106.toByte(),
-                236.toByte(),
-                107.toByte(),
-                177.toByte(),
-                78.toByte(),
-                132.toByte(),
-                240.toByte(),
-                127.toByte(),
-                227.toByte(),
-                152.toByte(),
-                76.toByte(),
-                156.toByte(),
-                124.toByte(),
-                65.toByte(),
-                210.toByte(),
-                72.toByte(),
-                88.toByte(),
-                119.toByte(),
-                105.toByte(),
-                7.toByte(),
-                224.toByte(),
-                166.toByte(),
-                129.toByte(),
-                255.toByte(),
-                201.toByte(),
-                146.toByte(),
-                198.toByte(),
-                253.toByte(),
-                70.toByte(),
-                206.toByte(),
-                157.toByte(),
-                160.toByte()
+
+
+            val rate = 48000
+            val bufferSize = AudioTrack.getMinBufferSize(
+                48000,
+                AudioFormat.CHANNEL_OUT_MONO,
+                AudioFormat.ENCODING_PCM_16BIT
+            );
+
+            val audioAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
+
+            val audioFormat = AudioFormat.Builder()
+                .setSampleRate(rate.toInt())
+                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                .build()
+
+            val audioTrack = AudioTrack(
+                audioAttributes,
+                audioFormat,
+                bufferSize,
+                AudioTrack.MODE_STREAM,
+                0
             )
 
-            println("--------------------------------------------------------")
+            audioTrack.play()
 
-            codec.decoderInit(sampleRate = Constants.SampleRate._48000(),
-                channels = Constants.Channels.mono())
+            codec.decoderInit(
+                sampleRate = Constants.SampleRate._48000(),
+                channels = Constants.Channels.mono()
+            )
 
-            val decoded = codec.decode( bytes = encodedAudio, frameSize = Constants.FrameSize._1920())
-            if (decoded != null) {
-                println(decoded.contentToString())
+            println("--- INICIO ----------------------------------------------------")
+
+            val buffer = ByteArray(2048)
+            var socket: DatagramSocket? = null
+
+            val remoteHost = "190.2.45.173"
+            val remotePort = 64749
+
+            socket = DatagramSocket()
+            socket.broadcast = true
+            val packet = DatagramPacket(buffer, buffer.size)
+
+            val ping = byteArrayOf(99.toByte(), 0.toByte(), 0.toByte(), 0.toByte())
+            val sendPacket =
+                DatagramPacket(ping, ping.size, InetAddress.getByName(remoteHost), remotePort)
+            socket.send(sendPacket)
+
+            for (i in 0..20000) {
+
+                socket.receive(packet)
+                println("UDP " + packet.length.toString() + packet.data)
+
+                if (packet.length < 10){
+                    continue
+                }
+
+                val encodedAudio = packet.data.slice(4 until packet.length).toByteArray()
+
+                val decoded =
+                    codec.decode(
+                        bytes = encodedAudio,
+                        frameSize = Constants.FrameSize._1920()
+                    )
+
+                if (decoded != null) {
+                    println("UDP D" + decoded.contentToString())
+                    audioTrack.write(decoded, 0, decoded.size)
+                }
             }
 
-            println("--------------------------------------------------------")
+            socket.close()
+            println("--- FIN ----------------------------------------------------")
 
 
         } catch (e: Exception) {
@@ -98,8 +136,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun Greeting(name: String, modifier: Modifier = Modifier) {
     Text(
-            text = "Hello $name!",
-            modifier = modifier
+        text = "Hello $name!",
+        modifier = modifier
     )
 }
 
